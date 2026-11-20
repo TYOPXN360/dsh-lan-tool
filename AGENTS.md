@@ -2,7 +2,7 @@
 
 给后续修改本项目的 AI/开发者：先读完本文件再动代码。这里记录的是**踩过的坑、必须遵守的契约、以及验证方法**，不是项目介绍（介绍见 `README.md`）。
 
-当前基线：**dsh-lan-tool 1.7.2 ↔ DeepSeek Harness 桌面版 0.2.2-rc.3**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条。**
+当前基线：**dsh-lan-tool 1.7.3 ↔ DeepSeek Harness 桌面版 0.2.2-rc.4**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条；0.2.2-rc.3 → 0.2.2-rc.4 只有版本对齐（接口逐字节相同），见 §7 的 1.7.3 条。**
 
 ---
 
@@ -67,7 +67,7 @@ test/lan-proxy-e2e.mjs        **可选**端到端（真 Host + 真代理，会�
 
 **版本闸门（0.2.1 新增，先看这条再决定 `package.json` 怎么写）**：`dsh-app-boot` 的 `unmetRequirements()` 只校验**两处** —— 有 `engines.dsh` 时**只**看它（peer 全部忽略），否则逐个检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 的 `peerDependencies`；比较用 `semver.satisfies(..., { includePrerelease: true })`。不满足时 plugin-manager 会以 `incompatible-version` 拒绝安装/启用，要用 `dsh plugin --profile <p> allow-version <pkg@ver> --dsh-version <rt> --accept-risk` 授权。
 
-**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.7.2）写的是 `"engines": { "dsh": "0.2.2-rc.3" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
+**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.7.3）写的是 `"engines": { "dsh": "0.2.2-rc.4" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
 
 ```powershell
 $src='D:\DeepSeek\dsh-LAN'; $dst='C:\Users\MyBook\.dsh\profiles\desktop\node_modules\dsh-lan-tool'
@@ -126,7 +126,7 @@ Get-FileHash "$src\lib\client.js","$dst\lib\client.js" | Format-Table   # 逐个
 ### 3.4 `lib/client.js` 的结构性约束
 
 - 所有 `props.listDirectory(...)` 调用**必须**走 `callListDirectory()`：它把「方法不存在」这类同步 TypeError 转成 rejected promise，避免在 render 阶段（children 是急切构造的）炸掉整个 slot entry。加新调用点时照抄。
-- **移动端布局适配已整体删除（1.7.0）**：官方 0.2.2 自带窄屏布局（<768px 模态抽屉、<1024px 自动折叠、折叠屏 `device-posture`、软键盘与 `visualViewport` 处理），插件不再注入触控 CSS、鲸鱼按钮、滑动/长按手势、Enter→换行或焦点守卫。**不要**把这些加回来；手机端的问题先确认是不是官方布局本身。唯一的移动相关代码是口令门在 `pointer: coarse` 下不自动聚焦（见 §3.6）。
+- **移动端布局适配已整体删除（1.7.0），1.7.3 起以「插件自有、可开关」的形态回来**：官方 0.2.2 自带窄屏布局（<768px 模态抽屉、<1024px 自动折叠、折叠屏 `device-posture`、软键盘与 `visualViewport` 处理），插件不再注入触控 CSS、鲸鱼按钮、滑动/长按手势、Enter→换行或焦点守卫。**不要**把这些加回来；手机端的问题先确认是不是官方布局本身。1.7.3 只加了一层**范围严格受限**的移动适配，并且必须同时满足三条：①只写本插件自己的 `.dshLanP_*` / `#dshLanGate` 选择器（绝不碰官方或别的插件）；②每条规则都以 `body.dsh-lan-mobile-ui` 开头；③这个 body 类只由设置卡片的「移动端 UI 适配」开关（`mobileUiEnabled`，缺省为开）控制。`npm test` 的 H 段已静态锁定这三点——不要"顺手简化"成无条件 CSS。
 - 输入框仍是 shell 的 Lexical contenteditable，但按键/焦点行为完全归官方（Plain Enter 发送、Shift+Enter 换行、IME 组词 Enter 上屏）；插件既不 patch `keydown` 也不 patch `HTMLElement.prototype.focus`。
 - `installLanFetchReroute()` 包了全局 `window.fetch`（`lanFetchWrapped` 幂等标记），它是**唯一**的传输钩子：0.2.1 起（含 0.2.2-rc.3）的 connection handle 是 `{ interactions, openWebSocket, isLoopback, generation, state, rpc, reconnect, registerGenerationSource, start }`，**没有 `api`、也没有 `postJson`**（1.6.0 删掉了包 `connection.api.postJson` 的 `wrapApi`——它只会静默 no-op，留着是误导）。所有远端调用（含官方生成的命名空间）都走 `window.fetch`，所以这一层就够；新增网络调用不要绕过 `clientIsLocal()` 判断（主机自己必须走原生路径，见 §3.6）。
 - 局域网浏览器上**官方设置栈不可用是有意为之**：`dsh-client-ui-settings` 的 `persistence` 在 `apply()` 里按 `ctx.remote.$host.isLoopback` 取一次性常量，多个对象在**构造期**就据此决定是否 `subscribe`/`derive`，而 `dsh-client-locale` / `dsh-client-ui-chat` 的 README 明说这是 deliberate。**不要**试图"翻开关"（1.3.x 的 `lanHostMode()` 就是这么干的，已删）；卡片文案已改为"设置项请在主机上修改"。
@@ -192,7 +192,7 @@ Get-FileHash "$src\lib\client.js","$dst\lib\client.js" | Format-Table   # 逐个
 
 ### 4.1 离线自测（首选，不需要装插件）
 
-**仓库里已有一份可直接跑的回归测试**：`test/loopback-gate.test.mjs`（`npm test`，约 1 秒，**279 项断言**）。它锁定三条硬规则：**①主机自己永不被口令门拦、局域网设备必被拦**（主机 4 种对端 × 6 种 Host 全放行、局域网对端伪造 `Host: 127.0.0.1` 仍 403、`configure` 只认主机、`/lanapi` 对无 key 设备 403；客户端侧从真实源码切出 `isLoopbackHostname`/`detectLocalClient`/`shouldGate` 动态跑，覆盖 `[::1]` 带方括号、旧服务端无 `local`、缺字段、探测失败、版本不一致——一律不许挂 gate）；**②防火墙状态不许撒谎**（打桩 `netsh` 与 PowerShell 输出，断言"我们自己的规则 / 系统弹窗建的规则（同程序）/ 别人的 Any 端口规则（不算）/ 端口列表与区间 / UDP 不算 / 有局域网设备连入过"六类判定，外加规则名乱码回退、超长截断）；**③移动端适配确实已删除**（静态断言：无 `mobileAdapt`/鲸鱼/滑动/长按/Enter 改写，`inject` 不再含 `layout`）。另有版本一致性（两处 `PLUGIN_VERSION` = package.json）、中文文案转义解码、以及"重绑期的网络错误被当成预期"的静态断言。**改 `lib/index.js` 的门禁/防火墙判定、或 `lib/client.js` 的 gate/目录选择器之前，先跑它**。
+**仓库里已有一份可直接跑的回归测试**：`test/loopback-gate.test.mjs`（`npm test`，约 1 秒，**287 项断言**）。它锁定三条硬规则：**①主机自己永不被口令门拦、局域网设备必被拦**（主机 4 种对端 × 6 种 Host 全放行、局域网对端伪造 `Host: 127.0.0.1` 仍 403、`configure` 只认主机、`/lanapi` 对无 key 设备 403；客户端侧从真实源码切出 `isLoopbackHostname`/`detectLocalClient`/`shouldGate` 动态跑，覆盖 `[::1]` 带方括号、旧服务端无 `local`、缺字段、探测失败、版本不一致——一律不许挂 gate）；**②防火墙状态不许撒谎**（打桩 `netsh` 与 PowerShell 输出，断言"我们自己的规则 / 系统弹窗建的规则（同程序）/ 别人的 Any 端口规则（不算）/ 端口列表与区间 / UDP 不算 / 有局域网设备连入过"六类判定，外加规则名乱码回退、超长截断）；**③移动端适配范围受控**（1.7.0 删除旧的全局适配；1.7.3 起只允许 `body.dsh-lan-mobile-ui` 前缀的插件自有规则，且 `inject` 不含 `layout`）。另有版本一致性（两处 `PLUGIN_VERSION` = package.json）、中文文案转义解码、以及"重绑期的网络错误被当成预期"的静态断言。**改 `lib/index.js` 的门禁/防火墙判定、或 `lib/client.js` 的 gate/目录选择器之前，先跑它**。
 
 其余场景（迁移/开关/路由）按下法自测：
 
@@ -254,7 +254,7 @@ YAML 用 asar 里自带的 `yaml`（`dsh/node_modules/yaml`）解析，别用肉
 - 手工编辑 profile 补丁里的受管块，或手工恢复安装脚本那套"正则改 YAML"（补丁里现在**不该**有任何本插件的块；`clearLanBlock()` 只负责清理历史遗留）。
 - 试图在局域网页面上"解锁"官方设置栈（`settingsScope` 已不存在，见 §3.4）。
 - **擅自改作者机已安装的插件或替他安装/升级**：作者只授权改仓库代码与 profile 的 `minimumReleaseAgeExclude`；升级由他自己做。要在真机验证就用 §4.4 的隔离方式（junction 到仓库的临时 profile）。
-- **在官方已适配移动端后重新注入移动端布局/触控补丁**（0.2.2 起官方自带 <768px 抽屉、折叠屏姿态、软键盘处理；1.7.0 已整体删除 `mobileAdapt`，不要再恢复鲸鱼按钮、滑动开合、长按菜单或 Enter→换行）。
+- **在官方已适配移动端后重新注入全局移动端布局/触控补丁**（0.2.2 起官方自带 <768px 抽屉、折叠屏姿态、软键盘处理；1.7.0 已整体删除 `mobileAdapt`，不要再恢复鲸鱼按钮、滑动开合、长按菜单或 Enter→换行）。1.7.3 的移动适配是例外且必须保持"插件自有 + 开关控制"，见 §3.4。
 - **让插件依赖 `layout` 服务**（它只为移动端侧栏开关存在；1.7.0 起已从 `exports.inject` 与 `dsh.client.inject` 两处移除）。
 - 在 README 里堆更新记录或维护须知（约定：README 只作为用户文档；变更与踩坑写进本文件第 7 节或 commit）。
 
@@ -322,6 +322,18 @@ YAML 用 asar 里自带的 `yaml`（`dsh/node_modules/yaml`）解析，别用肉
 ---
 
 ## 7. 历史修复（防回归）
+
+### 1.7.3 — 对齐 DSH 0.2.2-rc.4 + 移动端 UI 适配改成独立开关
+
+- **版本对齐（rc.3 → rc.4）**：在 `.pnpm` 里 rc.3 与 rc.4 两套包并存，逐文件 `diff -rq` 核对 —— `dsh-host-webserver`、`dsh-client-connection`、`dsh-host-frontend-static`、`dsh-host-directory-picker-auto`、`dsh-client-ui-workspace`、`dsh-client-ui-renderer`、`dsh-app-boot`、`dsh-client-ui-settings` **lib 全部逐字节相同**；唯一差异是 `dsh-client-modules/lib/index.js` 里的 build commit 常量（`6b729fe` → `70005a5`），该常量只进 `/plugins/events` 的图帧、不参与任何判定。⇒ rc.4 适配**只改版本元数据**，运行时行为零改动。
+- **新功能：设置 → 通用 →「局域网访问（dsh-lan-tool）」里的「移动端 UI 适配」开关**（需求明确限定为"只改本插件自己的 UI"）：
+  - 服务端：`MOBILE_UI_STATE_KEY = "mobileUiEnabled"` 存进 `dsh-lan.json`；缺省**开**（老安装升级后行为不变），只有显式 `false` 才关；`/dsh-lan/status` 把它作为**非 host-only** 字段 `mobileUi` 下发（局域网手机也要按主机的选择渲染）；`POST /dsh-lan/configure` 只接受真正的 boolean，其它类型 400。
+  - 客户端：`applyMobileUi()` 给 `document.body` 加/去 `dsh-lan-mobile-ui`；`fetchStatus()` 每次成功都应用一遍（多标签页/局域网设备无需刷新即跟随）。
+  - 样式：新增 `MOBILE_UI_CSS`（`data-plugin-css="dsh-lan-tool/mobile-ui.css"`），**每条规则都以 `body.dsh-lan-mobile-ui ` 开头**，且只命中本插件自己的 `.dshLanP_*` 与 `#dshLanGate`：目录选择器贴边距 12px、卡片用 `calc(100dvh - 24px)`、条目 `min-height:44px`、输入框 16px（iOS 聚焦不缩放）；口令门同样放大。开关关闭 ⇒ 类消失 ⇒ 目录选择器与口令门同时回到桌面尺寸（这正是需求里的"关闭后同时关闭移动端 UI 适配和新建工作区目录 UI 的 UI 适配显示"）。
+  - 基础 `PICKER_CSS` 的卡片高度从 `min(560px,100dvh - 40px)` 改为 `calc(100vh - 40px)` —— `dvh` 只留在移动块里，桌面端在开关关闭时完全不受影响。
+  - 口令门"触屏不自动聚焦"也接进这个开关：关闭后恢复官方聚焦行为。
+- **验证**：`npm test` 新增 8 条静态断言（状态键、status 字段、boolean 校验、客户端应用、卡片开关、**每条规则都必须带 body 类前缀**、桌面 `vh` 与移动 `dvh` 分离、聚焦跟随开关）。本机（Linux）跑出 **274/287**：新增 8 条全过，13 条失败全部是**改动前就存在**的（A0/K/K2 防火墙段——测试按 Windows 的 `netsh`/PowerShell 语义打桩，Linux 上会命中真实 firewalld），基线同样是 13 条失败。
+- **发布注意**：这是 fork 版本；作者机/上游仍是 1.7.2 基线，合并前需重跑 Windows 侧完整 `npm test`（应 287/287）与 `test/lan-proxy-e2e.mjs`。
 
 ### 1.7.2 — 对齐 DSH 0.2.2-rc.3（只改版本闸，功能不变）
 

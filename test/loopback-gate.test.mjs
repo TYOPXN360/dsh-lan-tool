@@ -21,7 +21,7 @@ const HOME = mkdtempSync(join(tmpdir(), 'dsh-lan-test-'));
 process.env.DSH_HOME = HOME;
 const PATCH = join(HOME, 'profiles', 'desktop', 'cordis.patch.yml');
 /** The one DSH release this plugin version pins; bump together with package.json. */
-const SUPPORTED_DSH = '0.2.2-rc.3';
+const SUPPORTED_DSH = '0.2.2-rc.4';
 
 // The firewall must never be touched for real: stub node:child_process. The
 // stub is scriptable, so the firewall verdicts below can be driven through the
@@ -443,13 +443,30 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   check('H firewall rule names are sanitized before they reach the card', server.includes('sanitizeFirewallNote(system.name'));
   check('H the card treats a rebind refusal as expected, not as an error', client.includes('isTransientFetchError(message) && (inRebindWindow() || previous?.applying === true)'));
   check('H a toggle marks the rebind window and keeps polling', client.includes('if (typeof body?.enabled === "boolean") markRebindWindow();'));
-  check('H the gate only auto-focuses away from touch devices', client.includes('const coarsePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;') && client.includes('if (!coarsePointer) input.focus();'));
+  check('H the gate only auto-focuses away from touch devices', client.includes('const coarsePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;') && client.includes('if (!(mobileUiEnabled && coarsePointer)) input.focus();'));
   // 1.7.0 — the old portrait-phone adaptation (touch CSS, whale button, swipe /
   // long-press navigation, Enter-to-newline rewrite, focus guard) is gone: DSH
   // 0.2.2 ships its own narrow layout, so the plugin no longer patches it.
   check('H no mobile layout adaptation is injected', !client.includes('mobileAdapt') && !client.includes('dsh-lan-portrait') && !client.includes('dshLanWhale') && !client.includes('__dshLanAdapt'));
   check('H no touch-only keyboard/sidebar handlers remain', !client.includes('onKeydownCapture') && !client.includes('isComposerField') && !client.includes('swipeTouch') && !client.includes('longPress'));
   check('H the layout service left the inject lists', !client.includes('"layout"') && !(pkg.dsh?.client?.inject ?? []).includes('@deepseek-ai/dsh-client-ui-layout'));
+  // 1.7.3 — the plugin's OWN mobile UI adaptation, behind its own switch.
+  // Scope is the whole point: the rule set may only touch this plugin's picker
+  // and gate, and every rule must hang off the body class the switch controls.
+  // A future agent must not "simplify" this into unconditional CSS.
+  check('H the mobile-UI switch is persisted in the state file', server.includes('const MOBILE_UI_STATE_KEY = "mobileUiEnabled";') && server.includes('readState()[MOBILE_UI_STATE_KEY] !== false'));
+  check('H the status reply carries the switch to every client', server.includes('mobileUi: state[MOBILE_UI_STATE_KEY] !== false'));
+  check('H configure rejects a non-boolean mobileUi', server.includes('"mobileUi must be a boolean"'));
+  check('H the client applies the switch from every status reply', client.includes('applyMobileUi(data?.mobileUi !== false)'));
+  check('H the switch is shown in the plugin settings card', client.includes('t("mobileUi.title")'));
+  check('H the mobile rules only match when the switch is on', (() => {
+    const match = client.match(/const MOBILE_UI_CSS = \[([\s\S]*?)\]\.join\(""\);/);
+    if (match === null) return false;
+    const rules = [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    return rules.length > 0 && rules.every((rule) => rule.startsWith('body.dsh-lan-mobile-ui '));
+  })());
+  check('H the desktop picker keeps a vh height (dvh is mobile-only)', client.includes('max-height:min(560px,calc(100vh - 40px))') && !client.includes('max-height:min(560px,100dvh - 40px)'));
+  check('H the gate autofocus suppression follows the switch', client.includes('mobileUiEnabled && coarsePointer'));
   // 1.4.6 — the "applying…" line must read as progress (green), not as the
   // muted status grey or the red error tone.
   check('H the applying line is rendered with the progress class', client.includes('className: c.pending, children: t("status.applying")'));
