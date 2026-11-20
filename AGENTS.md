@@ -2,7 +2,7 @@
 
 给后续修改本项目的 AI/开发者：先读完本文件再动代码。这里记录的是**踩过的坑、必须遵守的契约、以及验证方法**，不是项目介绍（介绍见 `README.md`）。
 
-当前基线：**dsh-lan-tool 1.7.3 ↔ DeepSeek Harness 桌面版 0.2.2-rc.4**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条；0.2.2-rc.3 → 0.2.2-rc.4 只有版本对齐（接口逐字节相同），见 §7 的 1.7.3 条。**
+当前基线：**dsh-lan-tool 1.7.4 ↔ DeepSeek Harness 桌面版 0.2.2-rc.5**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条；0.2.2-rc.3 → 0.2.2-rc.4 只有版本对齐（接口逐字节相同），见 §7 的 1.7.3 条；0.2.2-rc.4 → 0.2.2-rc.5 同样只有版本对齐（仅 build commit 常量变化），见 §7 的 1.7.4 条。**
 
 ---
 
@@ -67,7 +67,7 @@ test/lan-proxy-e2e.mjs        **可选**端到端（真 Host + 真代理，会�
 
 **版本闸门（0.2.1 新增，先看这条再决定 `package.json` 怎么写）**：`dsh-app-boot` 的 `unmetRequirements()` 只校验**两处** —— 有 `engines.dsh` 时**只**看它（peer 全部忽略），否则逐个检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 的 `peerDependencies`；比较用 `semver.satisfies(..., { includePrerelease: true })`。不满足时 plugin-manager 会以 `incompatible-version` 拒绝安装/启用，要用 `dsh plugin --profile <p> allow-version <pkg@ver> --dsh-version <rt> --accept-risk` 授权。
 
-**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.7.3）写的是 `"engines": { "dsh": "0.2.2-rc.4" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
+**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.7.4）写的是 `"engines": { "dsh": "0.2.2-rc.5" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
 
 ```powershell
 $src='D:\DeepSeek\dsh-LAN'; $dst='C:\Users\MyBook\.dsh\profiles\desktop\node_modules\dsh-lan-tool'
@@ -322,6 +322,12 @@ YAML 用 asar 里自带的 `yaml`（`dsh/node_modules/yaml`）解析，别用肉
 ---
 
 ## 7. 历史修复（防回归）
+
+### 1.7.4 — 对齐 DSH 0.2.2-rc.5（只改版本闸，功能不变）
+
+- **版本对齐（rc.4 → rc.5）**：`.pnpm` 里 rc.4 与 rc.5 两套包并存，对 `dsh-host-webserver`、`dsh-client-connection`、`dsh-host-frontend-static`、`dsh-host-directory-picker-auto`、`dsh-client-ui-workspace`、`dsh-client-ui-renderer`、`dsh-client-ui-settings`、`dsh-app-boot` 逐文件 `diff -rq` 核对 —— **lib 全部逐字节相同**；唯一差异仍是 `dsh-client-modules/lib/index.js` 里的 build commit 常量（`70005a5` → `3f85d88`），该常量只进 `/plugins/events` 的图帧、不参与任何判定。⇒ rc.5 适配**只改版本元数据**，运行时行为零改动。
+- **改动清单**：`package.json` 的 `version`（1.7.3 → 1.7.4）、`engines.dsh` 与 `dsh.compatibility.*`（rc.4 → rc.5，仍为精确值）；`lib/index.js` 与 `lib/client.js` 的 `PLUGIN_VERSION`；`README.md` / `README.en.md` 的版本徽章与版本要求段落。
+- **验证**：`PLUGIN_VERSION` 两处 = `package.json.version` 由 `npm test` 静态断言锁定；本次无行为改动，未重跑 §4.4 端到端。
 
 ### 1.7.3 — 对齐 DSH 0.2.2-rc.4 + 移动端 UI 适配改成独立开关
 
