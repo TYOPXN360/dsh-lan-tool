@@ -47,7 +47,7 @@ Open the same DeepSeek Harness from a phone, tablet, or another computer on your
 - Once enabled, the settings card lists the available LAN URLs; open `http://<host-ip>:<port>` on a LAN device and enter the password.
 - DSH picks a port on every start, so the **port may change**. To pin it, enter a "LAN port" (1024–65535) in the card and press "Apply port".
 - Phones/tablets use the official narrow layout — no extra setup needed.
-- **“Mobile UI adaptation”** in the card controls this plugin’s own surfaces only: when on, the new-workspace folder picker and the LAN password gate scale for phones (44px touch rows, 16px inputs, nearly full-screen); when off they revert to desktop sizing. It never touches official DSH layout and is independent of the LAN access switch.
+- **“Mobile UI adaptation”** in the card controls this plugin’s own surfaces only: when on, the new-workspace folder picker and the LAN password gate scale for phones (44px touch rows, 16px inputs, nearly full-screen); when off this plugin stops shadowing the folder picker altogether, so “New workspace” uses DSH’s official dialog again (on a LAN device that official picker may not be able to browse folders) and the gate reverts to desktop sizing. It never touches official DSH layout and is independent of the LAN access switch.
 - Windows may ask once about firewall access on first enable; click Allow. The card picks the OS rule up automatically.
 
 ## What LAN devices can do

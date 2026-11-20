@@ -489,6 +489,18 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   })());
   check('H the desktop picker keeps a vh height (dvh is mobile-only)', client.includes('max-height:min(560px,calc(100vh - 40px))') && !client.includes('max-height:min(560px,100dvh - 40px)'));
   check('H the gate autofocus suppression follows the switch', client.includes('mobileUiEnabled && coarsePointer'));
+  // "Off" must stop the TAKEOVER, not just resize it: the user-visible contract
+  // is "switch off ⇒ DSH's own dialog handles 新建工作区 again". Releasing the
+  // slot seats is the only way a `single` hole can hand the cell back to the
+  // official entry (rendering null would keep the cell occupied and empty).
+  check('H the picker watcher releases its seats when the switch is off', (() => {
+    const guard = client.indexOf('if (!mobileUiEnabled) {');
+    const seat = client.indexOf('pickerSeats[hole] = ctx.slots.register({');
+    return guard > 0 && seat > guard && guard < seat;
+  })());
+  check('H flipping the switch re-syncs the picker immediately', client.includes('if (pickerResync !== null) pickerResync();'));
+  check('H the picker effect publishes and retracts its resync hook', client.includes('pickerResync = seatIfNeeded;') && client.includes('if (pickerResync === seatIfNeeded) pickerResync = null;'));
+  check('H the card explains that off returns to the official dialog', client.includes('「新建工作区」改回 DSH 官方对话框') && client.includes("uses DSH's official dialog again"));
   // 1.4.6 — the "applying…" line must read as progress (green), not as the
   // muted status grey or the red error tone.
   check('H the applying line is rendered with the progress class', client.includes('className: c.pending, children: t("status.applying")'));
