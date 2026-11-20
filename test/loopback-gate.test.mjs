@@ -471,6 +471,14 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   check('H the status reply carries the switch to every client', server.includes('mobileUi: state[MOBILE_UI_STATE_KEY] !== false'));
   check('H configure rejects a non-boolean mobileUi', server.includes('"mobileUi must be a boolean"'));
   check('H the card offers the mobile-UI switch to LAN devices too', client.includes('const mobileUiSection = data === null ? null :'));
+  // The boot default is ON (no flash on a phone), so the real value must be
+  // fetched right there — otherwise a tab that never opened Settings keeps the
+  // default and the switch looks dead (the 1.7.3 bug).
+  check('H boot fetches the saved switch instead of trusting the default', (() => {
+    const boot = client.indexOf('applyMobileUi(true);');
+    const fetch = client.indexOf('void fetchStatus();', boot);
+    return boot > 0 && fetch > boot && fetch - boot < 600;
+  })());
   check('H the client applies the switch from every status reply', client.includes('applyMobileUi(data?.mobileUi !== false)'));
   check('H the switch is shown in the plugin settings card', client.includes('t("mobileUi.title")'));
   check('H the mobile rules only match when the switch is on', (() => {
