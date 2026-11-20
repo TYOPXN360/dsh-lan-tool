@@ -335,6 +335,19 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   await configure.handler(makeReq({ peer: '127.0.0.1', host: '[::1]:19387', method: 'POST', url: '/dsh-lan/configure', body: { enabled: true } }), localRes);
   check('E host configure accepted behind [::1]', localRes.statusCode === 200, `status=${localRes.statusCode} body=${localRes.body.slice(0, 120)}`);
 
+  // v1.7.3 — the mobile-UI switch is a presentation preference for the surface
+  // the LAN device is looking at, so a LAN client may flip it. Anything else in
+  // the body still rewrites the host's exposure and stays host-only.
+  const lanMobileRes = makeRes();
+  await configure.handler(makeReq({ peer: REMOTE, host: '192.168.0.9:19387', method: 'POST', url: '/dsh-lan/configure', body: { mobileUi: false } }), lanMobileRes);
+  check('E a LAN device may switch off the mobile UI', lanMobileRes.statusCode === 200 && JSON.parse(lanMobileRes.body).mobileUi === false, `status=${lanMobileRes.statusCode} body=${lanMobileRes.body.slice(0, 120)}`);
+  const lanMixedRes = makeRes();
+  await configure.handler(makeReq({ peer: REMOTE, host: '192.168.0.9:19387', method: 'POST', url: '/dsh-lan/configure', body: { mobileUi: true, enabled: true } }), lanMixedRes);
+  check('E a LAN device may not smuggle another key in', lanMixedRes.statusCode === 403, `status=${lanMixedRes.statusCode}`);
+  const lanPortRes = makeRes();
+  await configure.handler(makeReq({ peer: REMOTE, host: '192.168.0.9:19387', method: 'POST', url: '/dsh-lan/configure', body: { lanPort: 3081 } }), lanPortRes);
+  check('E a LAN device still cannot pin the port', lanPortRes.statusCode === 403, `status=${lanPortRes.statusCode}`);
+
   // v1.5.0 — the toggle MUST NOT write a `webserver` override any more. On DSH
   // 0.2.1-rc.2 the schema rejects wildcard bind addresses and `webserver` is a
   // required row, so a leftover `host: '0.0.0.0'` block does not merely expose
@@ -457,6 +470,7 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   check('H the mobile-UI switch is persisted in the state file', server.includes('const MOBILE_UI_STATE_KEY = "mobileUiEnabled";') && server.includes('readState()[MOBILE_UI_STATE_KEY] !== false'));
   check('H the status reply carries the switch to every client', server.includes('mobileUi: state[MOBILE_UI_STATE_KEY] !== false'));
   check('H configure rejects a non-boolean mobileUi', server.includes('"mobileUi must be a boolean"'));
+  check('H the card offers the mobile-UI switch to LAN devices too', client.includes('const mobileUiSection = data === null ? null :'));
   check('H the client applies the switch from every status reply', client.includes('applyMobileUi(data?.mobileUi !== false)'));
   check('H the switch is shown in the plugin settings card', client.includes('t("mobileUi.title")'));
   check('H the mobile rules only match when the switch is on', (() => {
