@@ -2,7 +2,7 @@
 
 给后续修改本项目的 AI/开发者：先读完本文件再动代码。这里记录的是**踩过的坑、必须遵守的契约、以及验证方法**，不是项目介绍（介绍见 `README.md`）。
 
-当前基线：**dsh-lan-tool 1.7.4 ↔ DeepSeek Harness 桌面版 0.2.2-rc.5**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条；0.2.2-rc.3 → 0.2.2-rc.4 只有版本对齐（接口逐字节相同），见 §7 的 1.7.3 条；0.2.2-rc.4 → 0.2.2-rc.5 同样只有版本对齐（仅 build commit 常量变化），见 §7 的 1.7.4 条。**
+当前基线：**dsh-lan-tool 1.8.0 ↔ DeepSeek Harness 0.2.3-alpha.2**（`runtime.json` 的 `desktopVersion` 可能滞后，以 `app.asar` 内 `dsh/package.json` 的 `version` 为准；2026-11-16 实测 runtime.json 仍写 0.2.2-rc.1，而 asar 已是 0.2.2-rc.3）。本文件的运行时事实均已在 0.2.2-rc.3 的 `app.asar` 内逐文件核对，括号里给的是 asar 内路径（以 `dsh/node_modules/` 开头）。**0.2.0-rc.2 → 0.2.1-rc.2 的破坏性变更见 §3.5（那一条改了整个局域网实现方式）；0.2.2-rc.1 → 0.2.2-rc.3 的变更见 §7 的 1.7.2 条；0.2.2-rc.3 → 0.2.2-rc.4 只有版本对齐（接口逐字节相同），见 §7 的 1.7.3 条；0.2.2-rc.4 → 0.2.2-rc.5 同样只有版本对齐（仅 build commit 常量变化），见 §7 的 1.7.4 条；**0.2.3-alpha.2 重写了认证层（`requestRejection`/`browserAuth` 被 `connection.authentication` 注册表取代），见 §3.6 与 §7 的 1.8.0 条。**
 
 ---
 
@@ -67,7 +67,7 @@ test/lan-proxy-e2e.mjs        **可选**端到端（真 Host + 真代理，会�
 
 **版本闸门（0.2.1 新增，先看这条再决定 `package.json` 怎么写）**：`dsh-app-boot` 的 `unmetRequirements()` 只校验**两处** —— 有 `engines.dsh` 时**只**看它（peer 全部忽略），否则逐个检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 的 `peerDependencies`；比较用 `semver.satisfies(..., { includePrerelease: true })`。不满足时 plugin-manager 会以 `incompatible-version` 拒绝安装/启用，要用 `dsh plugin --profile <p> allow-version <pkg@ver> --dsh-version <rt> --accept-risk` 授权。
 
-**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.7.4）写的是 `"engines": { "dsh": "0.2.2-rc.5" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
+**1.6.0 起本插件是"刻意钉死版本"的**（用户 2026-10-26 的要求："仅兼容当前版本号"）：当前 `package.json`（1.8.0）写的是 `"engines": { "dsh": "0.2.3-alpha.2" }`（**精确值，不是范围**）。因为插件直接改写 `connection`/`webServer` 的内部行为，跨版本无法保证；这条闸就是"DSH 升级后必须先发新版插件"的机制。⇒ **DSH 一升版，插件就会以 `incompatible-version` 装不上/起不来**，这是设计而非 bug；发新版时同步改 `engines.dsh`、`dsh.compatibility`（同一条）与 README 的版本声明。**不要**再给 `peerDependencies` 加具体范围（有 `engines.dsh` 时 peer 根本不参与判定，加了只会误导）。`dsh.compatibility.*` 仍是**纯元数据**（全 asar 无消费点），真正的闸只有 `engines.dsh`。
 
 ```powershell
 $src='D:\DeepSeek\dsh-LAN'; $dst='C:\Users\MyBook\.dsh\profiles\desktop\node_modules\dsh-lan-tool'
@@ -167,7 +167,16 @@ Get-FileHash "$src\lib\client.js","$dst\lib\client.js" | Format-Table   # 逐个
 - **`/lanapi` 重入必须传 peer**（v1.5.7）：`connection.createSharedFetchHandler("/api").fetch(request)` 少一个参数时，通道分发读 `peer.signal` 直接抛 `gateway/internal: Cannot read properties of undefined (reading 'signal')` —— 表现为"设置页里所有依赖远端命名空间的东西都报不可用"（内置插件页就是一句 `插件暂时不可用。`）。正确写法是 `.fetch(request, connection.browserPeer)`。
 - **版本握手**：`/dsh-lan/status` 报 `version`，客户端请求带 `x-dsh-lan-client`；不一致说明"装了没重启"（node 半边没换代码），客户端在设置卡片与控制台写明、服务端 log 一行。
 - 口令门拒绝时会打一行去重日志 `password gate: … — peer=… is not an address of this machine (host=…)`：万一主机又被挡住，这行日志直接指出被判成"非本机"的 peer/host（1.4.0 时这种事故在日志里是完全静默的）。
-- **唯一闸门**是 `connection.requestRejection(request)`（`@deepseek-ai/dsh-client-connection/lib/index.js`：Host/Origin 围栏 + 浏览器会话），`admit()` 调它，RPC 路由与 fetch/WS 处理器都走 `admit` ⇒ 直接替换实例方法即可覆盖全部入口。
+- **0.2.3-alpha.2 的认证层（1.8.0 重写，改这块前必读）**：`connection` 不再有 `requestRejection` / `browserAuth` / `authenticatedUrl`。新形状是
+  - `connection.isTrustedRequest(request)`：Host/Origin 来源策略（仍然只看头，不看 TCP 对端）；本插件把「本机对端 + 门开着」的请求判为可信，这样代理转发时保留的局域网 authority 不会被 403；
+  - `connection.authentication.register({ authenticate(request) => Peer | undefined })`：按注册顺序取第一个返回 Peer 的验证器。本插件注册一个「门开着 + 请求带口令（头或 `dsh-lan-key` cookie）→ `connection.browserPeer`」的验证器，`admit()`、索引页、WebSocket upgrade 全都走它，**不需要再替换 `admit`/`isTrusted`**；
+  - 索引页由官方 `remote-connection`（alpha.2 新插件）的 `/` 路由渲染：显式 `auth: "anonymous"` 后在 handler 里重新调 `connection.authentication.authenticate(facts)`，所以验证器返回 Peer 就得到 SPA，返回空就得到「Connect to this Host」登录页（401）；
+  - 重定向到落地页改在 `webserver/request` 中间件里（`ctx.on(..., { prepend: true })`）：非本机、非代理本机、`GET /`、没有本插件 cookie → 302 `/dsh-lan/`；带 `?token=` 时仍让官方 token 流程跑，只把它的 401 改写成落地页。
+  - **身份比较不能再用对象 `===`**：alpha.2 的 `ctx.get("connection")` 每次返回新的 wrapper，`fenceModern` 用 `connection.__dshLanFenceId` 记号去重（否则每个 `/dsh-lan/status` 轮询都会重新注册一遍验证器）；`fenceInstalled()` / `/dsh-lan/diag` 的 `fence` 字段也用这个记号。
+  - **cookie 读取要兼容两种 headers**：`/` 路由交给验证器的是 WHATWG `Request`（`Headers` 实例），`headers.cookie` 是 `undefined`；`headerOf()` 统一支持普通对象与 `Headers`。
+  - `/dsh-lan/mint` 在 alpha.2 只是 302 到 `/`（落地页自己已经写好 `dsh-lan-key` cookie，验证器直接认它）；旧版仍有 `connection.authenticatedUrl` 时保持原来的 token 兑换。
+  - 本插件注册的路由必须带 `auth: "anonymous"`：alpha.2 命名路由默认 `required`，否则局域网设备在落地页之前就被 401。
+- **旧版闸门（0.2.2-rc.x，仍保留在代码里作回退）**：`connection.requestRejection(request)`（`@deepseek-ai/dsh-client-connection/lib/index.js`：Host/Origin 围栏 + 浏览器会话），`admit()` 调它，RPC 路由与 fetch/WS 处理器都走 `admit` ⇒ 直接替换实例方法即可覆盖全部入口。
 - `browserAuth.authorizeIndex(req, res, secure = false)` 只认 `GET /` 上的 token；兑换成功写 authority 绑定的 `HttpOnly; SameSite=Strict` cookie 并 303 到 `./`。**0.2.1 起（含 0.2.2-rc.3）第 3 个参数是官方的**（`HostConnectionService.authorizeIndex` 传 `webServer.protocol === "https:"`，BrowserAuth 用它决定 cookie 的 `Secure`）：我们的 `patchedAuthorize` 必须原样转发它（1.6.0 起已转发；1.5.9 只传两个参数，HTTP 部署无影响、TLS 部署会把 cookie 降级成非 Secure）。`connection.authenticatedUrl(base)` 给 URL 挂进程 token（token 是**进程内存**随机值，磁盘上不存在）。
 - **桌面壳的启动握手绝不能被 `patchedAuthorize` 短路（1.4.5 的教训，改 `patchedAuthorize` 前必读）**：桌面端启动时 `main.js` 的 `authenticateWebHost()` 会 `fetch(ready.url, { redirect:"manual" })` 并**要求 `status === 303 && set-cookie !== null`**，否则抛 `Error: Desktop Host authentication failed`，主进程弹出"DeepSeek Harness is unavailable"对话框（第三个按钮是"禁用第三方插件，备份 profile 补丁并重启"）。而 1.4.1–1.4.4 的 `patchedAuthorize` 写的是 `if (local) return true` —— **主机自己一律直接放行**，于是壳拿到的是 `200 + text/html`（走 `frontend-static` 的 `serveStatic()` 直接下发 SPA），启动必失败。触发条件是"**局域网开**的时候重启桌面端"：`boundToAllInterfaces(ctx)` 为真才装这道闸，而这个覆盖块**持久化在 profile 补丁里**，所以**每一次**启动都会失败，用户只能点那个"禁用第三方插件"按钮（它会把 LAN 块一起删掉）才能进应用 —— 进去后再开 LAN，下次启动又坏，表现为"反复发作"。**现行契约（1.4.5）**：本机分支里，`GET /` 且 `searchParams.has("token")` 时**必须委派** `origAuthorizeIndex.call(browserAuth, req, res)`，让它自己判 `303`/`401`；其余本机请求仍 `return true`。这个让渡是安全的：带进程 token **就等于**是主机（token 只在进程内存里），伪造 token 由官方 `tokenMatches()` 直接 401。**口令闸 `requestRejection` 一行都不用动**（它对本机从来都是 `return undefined`）。回归断言见 `test/loopback-gate.test.mjs` N 段。
 - **`ensureFencePatched` 的重入护栏必须同时比 connection 与 browserAuth**（1.4.5）：只比 `wrap.connection === connection` 时，若将来出现"同一个 connection 换了一个已打补丁的 browserAuth"，`origAuthorizeIndex` 会捕获到 `patchedAuthorize` 自己，形成嵌套委派（先 303 再被 `serveStatic` 写 200）——正是上面那个崩溃以更难查的形态复现。当前 cordis 把二者成对重建，所以到不了，但护栏要挡住这个方向。
@@ -192,7 +201,7 @@ Get-FileHash "$src\lib\client.js","$dst\lib\client.js" | Format-Table   # 逐个
 
 ### 4.1 离线自测（首选，不需要装插件）
 
-**仓库里已有一份可直接跑的回归测试**：`test/loopback-gate.test.mjs`（`npm test`，约 1 秒，**287 项断言**）。它锁定三条硬规则：**①主机自己永不被口令门拦、局域网设备必被拦**（主机 4 种对端 × 6 种 Host 全放行、局域网对端伪造 `Host: 127.0.0.1` 仍 403、`configure` 只认主机、`/lanapi` 对无 key 设备 403；客户端侧从真实源码切出 `isLoopbackHostname`/`detectLocalClient`/`shouldGate` 动态跑，覆盖 `[::1]` 带方括号、旧服务端无 `local`、缺字段、探测失败、版本不一致——一律不许挂 gate）；**②防火墙状态不许撒谎**（打桩 `netsh` 与 PowerShell 输出，断言"我们自己的规则 / 系统弹窗建的规则（同程序）/ 别人的 Any 端口规则（不算）/ 端口列表与区间 / UDP 不算 / 有局域网设备连入过"六类判定，外加规则名乱码回退、超长截断）；**③移动端适配范围受控**（1.7.0 删除旧的全局适配；1.7.3 起只允许 `body.dsh-lan-mobile-ui` 前缀的插件自有规则，且 `inject` 不含 `layout`）。另有版本一致性（两处 `PLUGIN_VERSION` = package.json）、中文文案转义解码、以及"重绑期的网络错误被当成预期"的静态断言。**改 `lib/index.js` 的门禁/防火墙判定、或 `lib/client.js` 的 gate/目录选择器之前，先跑它**。
+**仓库里已有一份可直接跑的回归测试**：`test/loopback-gate.test.mjs`（`npm test`，约 1 秒，**297 项断言**）。它锁定三条硬规则：**①主机自己永不被口令门拦、局域网设备必被拦**（主机 4 种对端 × 6 种 Host 全放行、局域网对端伪造 `Host: 127.0.0.1` 仍 403、`configure` 只认主机、`/lanapi` 对无 key 设备 403；客户端侧从真实源码切出 `isLoopbackHostname`/`detectLocalClient`/`shouldGate` 动态跑，覆盖 `[::1]` 带方括号、旧服务端无 `local`、缺字段、探测失败、版本不一致——一律不许挂 gate）；**②防火墙状态不许撒谎**（打桩 `netsh` 与 PowerShell 输出，断言"我们自己的规则 / 系统弹窗建的规则（同程序）/ 别人的 Any 端口规则（不算）/ 端口列表与区间 / UDP 不算 / 有局域网设备连入过"六类判定，外加规则名乱码回退、超长截断）；**③移动端适配范围受控**（1.7.0 删除旧的全局适配；1.7.3 起只允许 `body.dsh-lan-mobile-ui` 前缀的插件自有规则，且 `inject` 不含 `layout`）。另有版本一致性（两处 `PLUGIN_VERSION` = package.json）、中文文案转义解码、以及"重绑期的网络错误被当成预期"的静态断言。**改 `lib/index.js` 的门禁/防火墙判定、或 `lib/client.js` 的 gate/目录选择器之前，先跑它**。
 
 其余场景（迁移/开关/路由）按下法自测：
 
@@ -322,6 +331,20 @@ YAML 用 asar 里自带的 `yaml`（`dsh/node_modules/yaml`）解析，别用肉
 ---
 
 ## 7. 历史修复（防回归）
+
+### 1.8.0 — 适配 DSH 0.2.3-alpha.2（认证层重写，功能不变）
+
+- **这不是版本号对齐**：0.2.3-alpha.2 把每条请求的认证从「`connection` 上的几个方法」改成了「来源策略 + 验证器注册表」，旧插件在这个运行时会被启动闸直接跳过（`Plugin dsh-lan-tool@1.7.4 is incompatible…`），强行放行也没用——`ensureFencePatched` 在 `typeof connection.requestRejection !== "function"` 处直接返回，**口令门整个不装**，局域网会变成无口令。所以 1.8.0 是一次必须做的移植。
+- **API 对照（旧 → 新）**：`connection.isTrusted` → `connection.isTrustedRequest`（语义相同，仍只看 Host/Origin）；`connection.requestRejection` / `admit` / `browserAuth.authorizeIndex` → **删除**；浏览器会话改为 `connection.authentication.register({ authenticate })` 的验证器（返回 Peer 即通过，`admit()`、`/` 索引页、WS upgrade 全走它）；`connection.authenticatedUrl` → 不存在（launch token 归 `dsh-host-authentication-token`）。
+- **新装法（`patchFenceModern`）**：①补 `isTrustedRequest`（本机对端 + 门开着 → 可信，否则原样委派）；②注册口令验证器（门开着 + 口令头/`dsh-lan-key` cookie → `connection.browserPeer`）；③在 `webserver/request` 上（`prepend`）拦 `GET /`：非本机、没有本插件 cookie → 302 `/dsh-lan/`；带 `?token=` 时让官方流程跑，只把 401 改写成落地页。旧路径按特征检测保留，rc.x 仍可用。
+- **索引页不是 `frontend-static` 了**：alpha.2 的 `@deepseek-ai/dsh-client-remote-connection` 注册了 exact `/` 路由（`auth: "anonymous"`），在 handler 里重新 `authentication.authenticate()`：有 Peer 才发 SPA，否则发「Connect to this Host」登录页（401）。这就是为什么验证器必须真的返回 Peer —— 只靠 `isTrustedRequest` 放行会停在登录页。
+- **两个实机坑（都已修，别再踩）**：
+  - `ctx.get("connection")` 在 alpha.2 **每次返回新的 wrapper**，`entry.connection === connection` 永远为 false ⇒ 不能拿对象身份做幂等/安装判定。改用写在服务上的 `connection.__dshLanFenceId` 记号；否则每个 `/dsh-lan/status` 轮询都会重新注册一遍验证器（实测一次启动里堆到 18 个）。`enforcement` 也靠这个记号，否则永远显示 `degraded`。
+  - 交给验证器的 headers 可能是 WHATWG `Headers`（`/` 路由来自 `serveResource` 的 `Request`），`headers.cookie` 是 `undefined`。`headerOf()` 统一处理普通对象与 `Headers`；不改的话就像什么都没带，索引页恒 401。
+- **`/dsh-lan/mint`**：alpha.2 只回 302 `/`（落地页此前已经写好 `dsh-lan-key` cookie，验证器直接认它）；旧运行时仍走 `authenticatedUrl` 的 token 兑换。代理的 `makeLanAdmit()` 也随之增加「把请求交给 `connection.authentication.authenticate()` 问一句」的会话识别。
+- **路由必须 `auth: "anonymous"`**：alpha.2 命名路由默认 `required`，否则 `/dsh-lan/` 落地页本身都会被 401（路由内部的门禁不变）。
+- **改动清单**：`package.json`（`version` 1.8.0、`engines.dsh`/`dsh.compatibility.*` = `0.2.3-alpha.2`）、两处 `PLUGIN_VERSION`、`lib/index.js`（新 fence + `headerOf` + `makeLanAdmit` + mint）、`test/loopback-gate.test.mjs`（`SUPPORTED_DSH` + 新增 P 段 10 条断言 + modern harness）、README 两处版本声明、本文件。
+- **验证（真 Host，隔离 DSH_HOME）**：`DSH_HOME=<临时目录> dsh web --host 127.0.0.1 --port 3099`（profile 用 `cp -al` 复制、插件仍指仓库）→ 日志 `LAN password fence installed` 且只出现一次；`/dsh-lan/diag` 报 `fence: "modern"`、`enforcement: "full"`；局域网地址上 `/` 无 cookie → 302 落地页、有 `dsh-lan-key` cookie → **200 + SPA**；`/lanapi/*` 无 → 403 / 有 → 到达网关；`/dsh-lan/fs/list` 有 → 200；主机 `GET /?token=` → 303（桌面壳握手不变）；局域网设备仍只能改 `mobileUi`（`{"enabled":false}` → 403）。`npm test` 297/310：新增 P 段全过，13 条失败仍是改动前就存在的 Linux 防火墙桩（A0/K/K2）。
 
 ### 1.7.4 — 对齐 DSH 0.2.2-rc.5（只改版本闸，功能不变）
 

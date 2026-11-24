@@ -21,7 +21,7 @@ const HOME = mkdtempSync(join(tmpdir(), 'dsh-lan-test-'));
 process.env.DSH_HOME = HOME;
 const PATCH = join(HOME, 'profiles', 'desktop', 'cordis.patch.yml');
 /** The one DSH release this plugin version pins; bump together with package.json. */
-const SUPPORTED_DSH = '0.2.2-rc.5';
+const SUPPORTED_DSH = '0.2.3-alpha.2';
 
 // The firewall must never be touched for real: stub node:child_process. The
 // stub is scriptable, so the firewall verdicts below can be driven through the
@@ -135,8 +135,81 @@ function makeHarness({ bindHost = '0.0.0.0', port = 19387 } = {}) {
   return { ctx, connection, browserPeer, routes, calls, dispose };
 }
 
-function makeReq({ peer, host, method = 'GET', url = '/', headers = {}, body = null }) {
-  const chunks = body === null ? [] : [Buffer.from(JSON.stringify(body))];
+/**
+ * 0.2.3-alpha.2 connection shape: no `requestRejection` / `browserAuth`, but a
+ * source policy (`isTrustedRequest`) and an ordered credential registry
+ * (`connection.authentication`).
+ */
+function makeModernHarness({ bindHost = '0.0.0.0', port = 19387 } = {}) {
+  const routes = new Map();
+  const listeners = new Map();
+  const providers = [];
+  const calls = { trusted: 0, trustedRequest: [] };
+  const browserPeer = { id: 'browser-peer', principal: { kind: 'owner' } };
+  const connection = {
+    browserPeer,
+    isTrustedRequest(req) {
+      calls.trusted += 1;
+      calls.trustedRequest.push(req?.headers?.host ?? null);
+      return false;
+    },
+    createSharedFetchHandler(channel) {
+      return {
+        async fetch(request, peer) {
+          return new Response(JSON.stringify({ ok: true, channel, peer: peer?.id ?? null }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      };
+    },
+  };
+  const authentication = {
+    register(provider) {
+      providers.push(provider);
+      return () => {
+        const at = providers.indexOf(provider);
+        if (at !== -1) providers.splice(at, 1);
+      };
+    },
+    authenticate(facts) {
+      for (const provider of [...providers]) {
+        const peer = provider.authenticate(facts);
+        if (peer !== undefined) return { peer };
+      }
+      return { rejection: 401 };
+    },
+  };
+  const webServer = {
+    host: bindHost,
+    port,
+    config: { host: bindHost, port, compression: 'gzip', compressionLevel: 6, compressionThresholdBytes: 1024 },
+    register(route) {
+      routes.set(`${route.kind} ${route.path}`, route);
+      return () => routes.delete(`${route.kind} ${route.path}`);
+    },
+  };
+  const ctx = {
+    webServer,
+    webStartup: { port: 19387 },
+    get(name) {
+      if (name === 'connection') return connection;
+      if (name === 'connection.authentication') return authentication;
+      if (name === 'profileContext') {
+        return { name: 'desktop', dir: join(HOME, 'profiles', 'desktop'), patchPath: PATCH, home: HOME };
+      }
+      return undefined;
+    },
+    on(name, listener) {
+      listeners.set(name, listener);
+      return () => listeners.delete(name);
+    },
+  };
+  const dispose = plugin.apply(ctx, {});
+  return { ctx, connection, authentication, browserPeer, routes, listeners, providers, calls, dispose };
+}
+
+function makeReq({ peer, host, method = 'GET', url = '/', headers = {}, body = null }) {  const chunks = body === null ? [] : [Buffer.from(JSON.stringify(body))];
   return {
     method,
     url,
@@ -1091,6 +1164,91 @@ const HOSTS = ['127.0.0.1:19387', 'localhost:19387', '[::1]:19387', 'desktop-o6u
   proxy.stop();
   check('O stop() closes the listeners', proxy.listening() === false);
   upstream.close();
+}
+
+// ── P. 0.2.3-alpha.2 fence: source policy + credential provider + middleware ─
+{
+  const h = makeModernHarness();
+  await setPassword(h, 'hunter2');
+
+  check('P the modern fence patches isTrustedRequest', h.connection.isTrustedRequest.__dshLanPatched === true);
+  check(
+    'P a loopback peer is trusted while the LAN door is open',
+    h.connection.isTrustedRequest(makeReq({ peer: '127.0.0.1', host: '192.168.0.9:19387' })) === true,
+  );
+  check(
+    'P a LAN peer keeps DSH\'s own authority rule',
+    h.connection.isTrustedRequest(makeReq({ peer: REMOTE, host: '192.168.0.9:19387' })) === false,
+  );
+
+  const admitted = h.authentication.authenticate(
+    makeReq({ peer: '127.0.0.1', host: '192.168.0.9:19387', headers: { 'x-dsh-lan-key': 'hunter2' } }),
+  );
+  check('P the password is a session credential', admitted.peer === h.browserPeer);
+  check(
+    'P a wrong key is not a session',
+    h.authentication.authenticate(makeReq({ peer: '127.0.0.1', host: 'x:1', headers: { 'x-dsh-lan-key': 'nope' } })).peer === undefined,
+  );
+
+  const middleware = h.listeners.get('webserver/request');
+  check('P the landing redirect is a request middleware', typeof middleware === 'function');
+
+  let res = makeRes();
+  let nexted = false;
+  await middleware(makeReq({ peer: REMOTE, host: '192.168.0.9:19387' }), res, () => { nexted = true; });
+  check(
+    'P a LAN device without a cookie gets the landing page',
+    res.statusCode === 302 && res.headers.location === '/dsh-lan/' && nexted === false,
+    `${String(res.statusCode)} ${String(res.headers.location)}`,
+  );
+
+  res = makeRes();
+  nexted = false;
+  await middleware(makeReq({ peer: '127.0.0.1', host: '127.0.0.1:19387' }), res, () => { nexted = true; });
+  check('P the host machine is never redirected', nexted === true && res.statusCode === 0);
+
+  res = makeRes();
+  nexted = false;
+  await middleware(
+    makeReq({ peer: REMOTE, host: '192.168.0.9:19387', headers: { cookie: 'dsh-lan-key=hunter2' } }),
+    res,
+    () => { nexted = true; },
+  );
+  check('P the password cookie reaches the app', nexted === true && res.statusCode === 0);
+
+  res = makeRes();
+  await middleware(makeReq({ peer: REMOTE, host: '192.168.0.9:19387', url: '/?token=stale' }), res, () => {
+    res.writeHead(401, {});
+    res.end('dsh web authentication required');
+  });
+  check(
+    'P a stale token is turned into the landing page',
+    res.statusCode === 302 && res.headers.location === '/dsh-lan/',
+    `${String(res.statusCode)} ${String(res.headers.location)}`,
+  );
+
+  const landing = h.routes.get('exact /dsh-lan/');
+  check('P plugin routes skip DSH\'s session requirement', landing?.auth === 'anonymous', JSON.stringify(landing?.auth));
+
+  const mint = h.routes.get('exact /dsh-lan/mint');
+  const mintRes = makeRes();
+  await mint.handler(
+    makeReq({ peer: REMOTE, host: '192.168.0.9:19387', method: 'POST', url: '/dsh-lan/mint', body: { password: 'hunter2' } }),
+    mintRes,
+  );
+  check(
+    'P mint goes straight to / when the runtime owns its own token',
+    mintRes.statusCode === 302 && mintRes.headers.location === '/',
+    `${String(mintRes.statusCode)} ${String(mintRes.headers.location)}`,
+  );
+
+  // The door being shut must leave every layer untouched (stock DSH).
+  const closed = makeModernHarness({ bindHost: '127.0.0.1' });
+  check('P a loopback-only deployment installs no redirect', closed.listeners.get('webserver/request') === undefined);
+  check(
+    'P a loopback-only deployment trusts stock behaviour',
+    closed.connection.isTrustedRequest.__dshLanPatched !== true && closed.providers.length === 0,
+  );
 }
 
 console.log(`PASS ${ok.length} / ${ok.length + fails.length}`);
